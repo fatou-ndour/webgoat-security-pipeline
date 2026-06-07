@@ -12,7 +12,7 @@ pipeline {
         RECIPIENT_MAIL = "fatoundour@esp.sn"
         REPORTS_DIR    = "${WORKSPACE}\\reports"
         DC_HOME        = "C:\\dependency-check"
-        WEBGOAT_PORT   = "8080"
+        WEBGOAT_PORT   = "8888"
     }
 
     triggers {
@@ -89,12 +89,12 @@ pipeline {
                     bat """
                         docker run -d ^
                             --name webgoat ^
-                            -p 8080:8080 ^
-                            -p 9090:9090 ^
+                            -p 8888:8080 ^
+                            -p 9191:9090 ^
                             webgoat/webgoat:latest
                     """
                     sleep(time: 45, unit: 'SECONDS')
-                    echo "WebGoat disponible sur http://localhost:8080/WebGoat"
+                    echo "WebGoat disponible sur http://localhost:8888/WebGoat"
                 }
             }
         }
@@ -109,7 +109,7 @@ pipeline {
                             -v "%WORKSPACE%\\reports:/zap/wrk" ^
                             ghcr.io/zaproxy/zaproxy:stable ^
                             zap-baseline.py ^
-                            -t http://localhost:8080/WebGoat ^
+                            -t http://localhost:8888/WebGoat ^
                             -r zap-report.html ^
                             -J zap-report.json ^
                             -l WARN ^
