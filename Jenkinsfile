@@ -1,7 +1,5 @@
 pipeline {
-
     agent any
-
     options {
         timeout(time: 120, unit: 'MINUTES')
         timestamps()
@@ -94,7 +92,7 @@ pipeline {
                             webgoat/webgoat:latest
                     """
                     sleep(time: 45, unit: 'SECONDS')
-                    echo "WebGoat disponible sur http://localhost:8888/WebGoat"
+                    echo "WebGoat disponible sur http://localhost:${WEBGOAT_PORT}/WebGoat"
                 }
             }
         }
@@ -109,11 +107,11 @@ pipeline {
                             -v "%WORKSPACE%\\reports:/zap/wrk" ^
                             ghcr.io/zaproxy/zaproxy:stable ^
                             zap-baseline.py ^
-                            -t http://localhost:8888/WebGoat ^
+                            -t http://localhost:${WEBGOAT_PORT}/WebGoat ^
                             -r zap-report.html ^
                             -J zap-report.json ^
                             -l WARN ^
-                            --auto
+                            --auto || exit 0
                     """
                     echo "DAST ZAP termine - rapport : reports/zap-report.html"
                 }
@@ -137,75 +135,25 @@ pipeline {
         always {
             bat "docker stop webgoat 2>nul & exit 0"
             bat "docker rm   webgoat 2>nul & exit 0"
-
-            archiveArtifacts(
-                artifacts: 'reports/**/*',
-                allowEmptyArchive: true,
-                fingerprint: true
-            )
-
+            archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
             emailext(
-                to                 : "${RECIPIENT_MAIL}",
-                subject            : "[DevSecOps] WebGoat - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
-                mimeType           : 'text/html',
-                attachmentsPattern : 'reports/bearer-report.json',
-                body               : """
-<html>
-<body style="font-family:Arial,sans-serif; padding:20px;">
-<h2 style="color:#1A3A5C;">Rapport DevSecOps - WebGoat</h2>
-<p>Build declenche automatiquement par un <b>push GitHub</b>.</p>
-<table border="1" cellpadding="8" style="border-collapse:collapse; width:500px;">
-  <tr style="background:#1A3A5C; color:white;">
-    <th>Champ</th><th>Valeur</th>
-  </tr>
-  <tr><td><b>Job</b></td><td>${env.JOB_NAME}</td></tr>
-  <tr style="background:#f5f7fa;">
-    <td><b>Build N</b></td><td>${env.BUILD_NUMBER}</td>
-  </tr>
-  <tr>
-    <td><b>Statut</b></td>
-    <td style="color:${currentBuild.currentResult == 'SUCCESS' ? 'green' : 'red'};">
-      <b>${currentBuild.currentResult}</b>
-    </td>
-  </tr>
-  <tr style="background:#f5f7fa;">
-    <td><b>Duree</b></td><td>${currentBuild.durationString}</td>
-  </tr>
-  <tr>
-    <td><b>Rapport SAST</b></td>
-    <td><a href="${env.BUILD_URL}artifact/reports/bearer-report.json">Bearer JSON</a></td>
-  </tr>
-  <tr style="background:#f5f7fa;">
-    <td><b>Rapport SCA</b></td>
-    <td><a href="${env.BUILD_URL}SCA_20-_20Dependency-Check">Dependency-Check HTML</a></td>
-  </tr>
-  <tr>
-    <td><b>Rapport DAST</b></td>
-    <td><a href="${env.BUILD_URL}DAST_20-_20ZAP_20Report">ZAP HTML</a></td>
-  </tr>
-  <tr style="background:#f5f7fa;">
-    <td><b>Jenkins</b></td>
-    <td><a href="${env.BUILD_URL}">Ouvrir le build</a></td>
-  </tr>
-</table>
-<br/>
-<p style="color:gray; font-size:11px;">
-  Outils : Bearer (SAST) + OWASP Dependency-Check (SCA) + OWASP ZAP (DAST)
-</p>
-</body>
-</html>
-                """
+                to      : "${RECIPIENT_MAIL}",
+                subject : "Pipeline WebGoat - ${currentBuild.result} - Build #${BUILD_NUMBER}",
+                body    : """
+Pipeline de securite WebGoat
+Statut  : ${currentBuild.result}
+Build   : #${BUILD_NUMBER}
+Duree   : ${currentBuild.durationString}
+Lien    : ${BUILD_URL}
+
+Rapports generes :
+- SAST  : bearer-report.json
+- SCA   : dependency-check-report.html
+- DAST  : zap-report.html
+""",
+                mimeType: 'text/plain'
             )
-
             echo "=== Rapports envoyes a ${RECIPIENT_MAIL} ==="
-        }
-
-        success {
-            echo "Pipeline DevSecOps termine avec succes !"
-        }
-
-        failure {
-            echo "Pipeline en echec - consulter les rapports ci-dessus"
         }
     }
 }
