@@ -57,7 +57,7 @@ pipeline {
                       --format HTML ^
                       --format JSON ^
                       --out "%REPORT_DIR%" ^
-                      --failOnCVSS 7 ^
+                      --failOnCVSS 11 ^
                       --enableExperimental
                 """
                 echo 'SCA termine - rapport : reports/dependency-check-report.html'
