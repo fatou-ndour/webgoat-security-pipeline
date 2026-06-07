@@ -101,11 +101,59 @@ pipeline {
             steps {
                 script {
                     echo "=== DAST : OWASP ZAP Scan ==="
-                    // exit 0 absorbe le code 2 retourne par ZAP quand il detecte des warnings
-                    // Un vrai FAIL (FAIL-NEW > 0) reste visible dans le rapport HTML
                     bat """
                         docker run --rm ^
                             --network host ^
                             -v "%WORKSPACE%\\reports:/zap/wrk" ^
                             ghcr.io/zaproxy/zaproxy:stable ^
                             zap-baseline.py ^
+                            -t http://localhost:${WEBGOAT_PORT}/WebGoat ^
+                            -r zap-report.html ^
+                            -J zap-report.json ^
+                            -l WARN ^
+                            --auto || exit 0
+                    """
+                    echo "DAST ZAP termine - rapport : reports/zap-report.html"
+                }
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing         : true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll              : true,
+                        reportDir            : 'reports',
+                        reportFiles          : 'zap-report.html',
+                        reportName           : 'DAST - ZAP Report'
+                    ])
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            bat "docker stop webgoat 2>nul & exit 0"
+            bat "docker rm   webgoat 2>nul & exit 0"
+            archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+            emailext(
+                to      : "${RECIPIENT_MAIL}",
+                subject : "Pipeline WebGoat - ${currentBuild.result} - Build #${BUILD_NUMBER}",
+                body    : """
+Pipeline de securite WebGoat
+Statut  : ${currentBuild.result}
+Build   : #${BUILD_NUMBER}
+Duree   : ${currentBuild.durationString}
+Lien    : ${BUILD_URL}
+
+Rapports generes :
+- SAST  : bearer-report.json
+- SCA   : dependency-check-report.html
+- DAST  : zap-report.html
+""",
+                mimeType: 'text/plain'
+            )
+            echo "=== Rapports envoyes a ${RECIPIENT_MAIL} ==="
+        }
+    }
+}
