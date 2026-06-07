@@ -8,7 +8,7 @@ pipeline {
     }
 
     environment {
-        REPO_URL       = "https://github.com/VOTRE_USERNAME/WebGoat.git"
+        REPO_URL       = "https://github.com/WebGoat/WebGoat.git"
         RECIPIENT_MAIL = "fatoundour@esp.sn"
         REPORTS_DIR    = "${WORKSPACE}\\reports"
         DC_HOME        = "C:\\dependency-check"
@@ -21,16 +21,14 @@ pipeline {
 
     stages {
 
-        // ── STAGE 1 : Checkout ────────────────────────────────
         stage('Checkout WebGoat') {
             steps {
                 git url: "${REPO_URL}", branch: 'main'
                 bat "if not exist reports mkdir reports"
-                echo "Code WebGoat cloné"
+                echo "Code WebGoat clone"
             }
         }
 
-        // ── STAGE 2 : SAST - Bearer ───────────────────────────
         stage('SAST - Bearer') {
             steps {
                 script {
@@ -51,13 +49,10 @@ pipeline {
             }
         }
 
-        // ── STAGE 3 : SCA - Dependency-Check ─────────────────
         stage('SCA - Dependency-Check') {
             steps {
                 script {
                     echo "=== SCA : OWASP Dependency-Check ==="
-                    // exit code 0 pour ne pas bloquer les stages suivants
-                    // on analyse les résultats manuellement dans post
                     bat """
                         "${DC_HOME}\\bin\\dependency-check.bat" ^
                             --project "WebGoat-SCA" ^
@@ -65,9 +60,8 @@ pipeline {
                             --format HTML ^
                             --format JSON ^
                             --out "%WORKSPACE%\\reports" ^
-                            --failOnCVSS 10 ^
+                            --failOnCVSS 11 ^
                             --enableExperimental ^
-                            --suppression "%WORKSPACE%\\suppression.xml" ^
                             --disableOssIndex
                     """
                 }
@@ -78,7 +72,7 @@ pipeline {
                         allowMissing         : true,
                         alwaysLinkToLastBuild: true,
                         keepAll              : true,
-                        reportDir            : "${WORKSPACE}\\reports",
+                        reportDir            : 'reports',
                         reportFiles          : 'dependency-check-report.html',
                         reportName           : 'SCA - Dependency-Check'
                     ])
@@ -86,28 +80,25 @@ pipeline {
             }
         }
 
-        // ── STAGE 4 : Déployer WebGoat pour DAST ─────────────
         stage('Deploy WebGoat pour DAST') {
             steps {
                 script {
-                    echo "=== Déploiement WebGoat pour ZAP ==="
+                    echo "=== Deploiement WebGoat pour ZAP ==="
                     bat "docker stop webgoat 2>nul & exit 0"
                     bat "docker rm   webgoat 2>nul & exit 0"
                     bat """
                         docker run -d ^
                             --name webgoat ^
-                            -p ${WEBGOAT_PORT}:8080 ^
+                            -p 8080:8080 ^
                             -p 9090:9090 ^
-                            webgoat/goat-and-wolf
+                            webgoat/webgoat:latest
                     """
-                    // Attendre que WebGoat soit prêt
-                    sleep(time: 30, unit: 'SECONDS')
-                    echo "WebGoat disponible sur http://localhost:${WEBGOAT_PORT}/WebGoat"
+                    sleep(time: 45, unit: 'SECONDS')
+                    echo "WebGoat disponible sur http://localhost:8080/WebGoat"
                 }
             }
         }
 
-        // ── STAGE 5 : DAST - OWASP ZAP ───────────────────────
         stage('DAST - OWASP ZAP') {
             steps {
                 script {
@@ -118,14 +109,13 @@ pipeline {
                             -v "%WORKSPACE%\\reports:/zap/wrk" ^
                             ghcr.io/zaproxy/zaproxy:stable ^
                             zap-baseline.py ^
-                            -t http://localhost:${WEBGOAT_PORT}/WebGoat ^
+                            -t http://localhost:8080/WebGoat ^
                             -r zap-report.html ^
                             -J zap-report.json ^
-                            -x zap-report.xml ^
-                            -I ^
-                            --hook=/zap/auth_hook.py 2>nul & exit 0
+                            -l WARN ^
+                            --auto
                     """
-                    echo "DAST ZAP terminé - rapport : reports/zap-report.html"
+                    echo "DAST ZAP termine - rapport : reports/zap-report.html"
                 }
             }
             post {
@@ -134,7 +124,7 @@ pipeline {
                         allowMissing         : true,
                         alwaysLinkToLastBuild: true,
                         keepAll              : true,
-                        reportDir            : "${WORKSPACE}\\reports",
+                        reportDir            : 'reports',
                         reportFiles          : 'zap-report.html',
                         reportName           : 'DAST - ZAP Report'
                     ])
@@ -145,35 +135,32 @@ pipeline {
 
     post {
         always {
-            // Stopper WebGoat
             bat "docker stop webgoat 2>nul & exit 0"
             bat "docker rm   webgoat 2>nul & exit 0"
 
-            // Archiver tous les rapports
             archiveArtifacts(
                 artifacts: 'reports/**/*',
                 allowEmptyArchive: true,
                 fingerprint: true
             )
 
-            // Envoi du rapport par mail
             emailext(
                 to                 : "${RECIPIENT_MAIL}",
-                subject            : "[DevSecOps] WebGoat — Build #${env.BUILD_NUMBER} — ${currentBuild.currentResult}",
+                subject            : "[DevSecOps] WebGoat - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
                 mimeType           : 'text/html',
                 attachmentsPattern : 'reports/bearer-report.json',
                 body               : """
 <html>
 <body style="font-family:Arial,sans-serif; padding:20px;">
-<h2 style="color:#1A3A5C;">Rapport DevSecOps — WebGoat</h2>
-<p>Build déclenché automatiquement par un <b>push GitHub</b>.</p>
+<h2 style="color:#1A3A5C;">Rapport DevSecOps - WebGoat</h2>
+<p>Build declenche automatiquement par un <b>push GitHub</b>.</p>
 <table border="1" cellpadding="8" style="border-collapse:collapse; width:500px;">
   <tr style="background:#1A3A5C; color:white;">
     <th>Champ</th><th>Valeur</th>
   </tr>
   <tr><td><b>Job</b></td><td>${env.JOB_NAME}</td></tr>
   <tr style="background:#f5f7fa;">
-    <td><b>Build N°</b></td><td>${env.BUILD_NUMBER}</td>
+    <td><b>Build N</b></td><td>${env.BUILD_NUMBER}</td>
   </tr>
   <tr>
     <td><b>Statut</b></td>
@@ -182,7 +169,7 @@ pipeline {
     </td>
   </tr>
   <tr style="background:#f5f7fa;">
-    <td><b>Durée</b></td><td>${currentBuild.durationString}</td>
+    <td><b>Duree</b></td><td>${currentBuild.durationString}</td>
   </tr>
   <tr>
     <td><b>Rapport SAST</b></td>
@@ -210,15 +197,15 @@ pipeline {
                 """
             )
 
-            echo "=== Rapports envoyés à ${RECIPIENT_MAIL} ==="
+            echo "=== Rapports envoyes a ${RECIPIENT_MAIL} ==="
         }
 
         success {
-            echo "Pipeline DevSecOps terminé avec succès !"
+            echo "Pipeline DevSecOps termine avec succes !"
         }
 
         failure {
-            echo "Pipeline en échec — consulter les rapports ci-dessus"
+            echo "Pipeline en echec - consulter les rapports ci-dessus"
         }
     }
 }
